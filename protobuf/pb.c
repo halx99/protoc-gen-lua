@@ -26,14 +26,41 @@
 #include <lualib.h>
 #include <lauxlib.h>
 
-#ifdef _ALLBSD_SOURCE
-#include <machine/endian.h>
-#else
-#include <endian.h>
+#if LUA_VERSION_NUM >= 502 && !defined(luaL_register)
+#define luaL_register(L,n,f) \
+    { if ((n) == NULL) luaL_setfuncs(L,f,0); else luaL_newlib(L,f); }
 #endif
 
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-#define IS_LITTLE_ENDIAN
+/*
+* =====================================================================================
+* LittleEndian Sense Macro, from google protobuf see:                                  
+* https://github.com/google/protobuf/blob/master/src/google/protobuf/io/coded_stream.h 
+* =====================================================================================
+*/
+#ifdef _MSC_VER
+ // Assuming windows is always little-endian.
+#if !defined(PROTOBUF_DISABLE_LITTLE_ENDIAN_OPT_FOR_TEST)
+#define PROTOBUF_LITTLE_ENDIAN 1
+#endif
+#if _MSC_VER >= 1300 && !defined(__INTEL_COMPILER)
+// If MSVC has "/RTCc" set, it will complain about truncating casts at
+// runtime.  This file contains some intentional truncating casts.
+#pragma runtime_checks("c", off)
+#endif
+#else
+#include <sys/param.h>  // __BYTE_ORDER
+#if (CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID)
+#include <sys/endian.h>
+#endif // CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID
+#if ((defined(__LITTLE_ENDIAN__) && !defined(__BIG_ENDIAN__)) ||    \
+     (defined(__BYTE_ORDER) && __BYTE_ORDER == __LITTLE_ENDIAN)) && \
+    !defined(PROTOBUF_DISABLE_LITTLE_ENDIAN_OPT_FOR_TEST)
+#define PROTOBUF_LITTLE_ENDIAN 1
+#endif
+#endif
+
+#if !defined(PROTOBUF_LITTLE_ENDIAN)
+#define PROTOBUF_LITTLE_ENDIAN 0
 #endif
 
 #define IOSTRING_META "protobuf.IOString"
@@ -136,7 +163,7 @@ static int signed_varint_encoder(lua_State *L)
 }
 
 static int pack_fixed32(lua_State *L, uint8_t* value){
-#ifdef IS_LITTLE_ENDIAN
+#if PROTOBUF_LITTLE_ENDIAN
     lua_pushlstring(L, (char*)value, 4);
 #else
     uint32_t v = htole32(*(uint32_t*)value);
@@ -146,7 +173,7 @@ static int pack_fixed32(lua_State *L, uint8_t* value){
 }
 
 static int pack_fixed64(lua_State *L, uint8_t* value){
-#ifdef IS_LITTLE_ENDIAN
+#if PROTOBUF_LITTLE_ENDIAN
     lua_pushlstring(L, (char*)value, 8);
 #else
     uint64_t v = htole64(*(uint64_t*)value);
@@ -315,7 +342,7 @@ static int read_tag(lua_State *L)
 
 static const uint8_t* unpack_fixed32(const uint8_t* buffer, uint8_t* cache)
 {
-#ifdef IS_LITTLE_ENDIAN
+#if PROTOBUF_LITTLE_ENDIAN
     return buffer;
 #else
     *(uint32_t*)cache = le32toh(*(uint32_t*)buffer);
@@ -325,7 +352,7 @@ static const uint8_t* unpack_fixed32(const uint8_t* buffer, uint8_t* cache)
 
 static const uint8_t* unpack_fixed64(const uint8_t* buffer, uint8_t* cache)
 {
-#ifdef IS_LITTLE_ENDIAN
+#if PROTOBUF_LITTLE_ENDIAN
     return buffer;
 #else
     *(uint64_t*)cache = le64toh(*(uint64_t*)buffer);
@@ -355,22 +382,31 @@ static int struct_unpack(lua_State *L)
             }
         case 'f':
             {
-                lua_pushnumber(L, (lua_Number)*(float*)unpack_fixed32(buffer, out));
+                float outnumber;
+                memcpy((void*)(&outnumber), (void*)unpack_fixed32(buffer, out), 4);
+                lua_pushnumber(L, (lua_Number)outnumber);
                 break;
             }
         case 'd':
             {
-                lua_pushnumber(L, (lua_Number)*(double*)unpack_fixed64(buffer, out));
+                double outnumber;
+                memcpy((void*)(&outnumber), (void*)unpack_fixed64(buffer, out), 8);
+                lua_pushnumber(L, (lua_Number)outnumber);
+
                 break;
             }
         case 'I':
             {
-                lua_pushnumber(L, *(uint32_t*)unpack_fixed32(buffer, out));
+                uint32_t value;
+                memcpy((void*)(&value), (void*)unpack_fixed32(buffer, out), 4);
+                lua_pushnumber(L, value);
                 break;
             }
         case 'Q':
             {
-                lua_pushnumber(L, (lua_Number)*(uint64_t*)unpack_fixed64(buffer, out));
+                uint64_t value;
+                memcpy((void*)(&value), (void*)unpack_fixed64(buffer, out), 8);
+                lua_pushnumber(L, value);
                 break;
             }
         default:
@@ -437,7 +473,7 @@ static int iostring_clear(lua_State* L)
     return 0;
 }
 
-static const struct luaL_reg _pb [] = {
+static const struct luaL_Reg _pb [] = {
     {"varint_encoder", varint_encoder},
     {"signed_varint_encoder", signed_varint_encoder},
     {"read_tag", read_tag},
@@ -453,7 +489,7 @@ static const struct luaL_reg _pb [] = {
     {NULL, NULL}
 };
 
-static const struct luaL_reg _c_iostring_m [] = {
+static const struct luaL_Reg _c_iostring_m [] = {
     {"__tostring", iostring_str},
     {"__len", iostring_len},
     {"write", iostring_write},
