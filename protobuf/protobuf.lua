@@ -308,9 +308,9 @@ local function _AttachFieldHelpers(message_meta, field_descriptor)
         message_meta._decoders_by_tag[tag_bytes] = TYPE_TO_DECODER[field_descriptor.type](field_descriptor.number, is_repeated, is_packed, field_descriptor, field_descriptor._default_constructor)
     end
   
-    AddDecoder(FIELD_TYPE_TO_WIRE_TYPE[field_descriptor.type], False)
+    AddDecoder(FIELD_TYPE_TO_WIRE_TYPE[field_descriptor.type], false)
     if is_repeated and IsTypePackable(field_descriptor.type) then
-        AddDecoder(wire_format.WIRETYPE_LENGTH_DELIMITED, True)
+        AddDecoder(wire_format.WIRETYPE_LENGTH_DELIMITED, true)
     end
 end
 
